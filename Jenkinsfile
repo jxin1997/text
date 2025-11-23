@@ -105,4 +105,4 @@ pipeline {
             sh "rm -rf $WORKSPACE/tmp_kube $WORKSPACE/.env || true"
         }
     }
-}
+
