@@ -37,10 +37,10 @@ pipeline {
                         sh """
                         mkdir -p \${WORKSPACE}/tmp_kube
                         cp \${KUBECONFIG_FILE} \${WORKSPACE}/tmp_kube/config
-                        # 修正 .env 文件创建路径
+                        # Shell 脚本内可用 # 注释
                         echo "KUBECONFIG=\${WORKSPACE}/tmp_kube/config" > \${WORKSPACE}/tmp_kube/.env
                         """
-                        # 修正 load 命令读取路径
+                        // Groovy 代码用 // 注释
                         load "\${WORKSPACE}/tmp_kube/.env"
                         sh """
                         echo "Updating deployment.yaml..."
