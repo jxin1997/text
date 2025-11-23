@@ -8,12 +8,6 @@ pipeline {
         KUBECONFIG_CREDENTIALS = credentials('kubeconfig-credentials') // Kubeconfig 凭证声明
     }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'master', url: 'https://github.com/jxin1997/text.git'
-            }
-        }
 
         stage('Build & Push Docker Image') {
             steps {
