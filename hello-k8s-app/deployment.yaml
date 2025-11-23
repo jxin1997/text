@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-k8s-app
+  labels:
+    app: hello-k8s-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-k8s-app
+  template:
+    metadata:
+      labels:
+        app: hello-k8s-app
+    spec:
+      containers:
+      - name: hello-k8s-app
+        image: harbor.your-domain.com/your-project/hello-k8s-app:latest
+        ports:
+        - containerPort: 5000
+        imagePullPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-k8s-app-service
+spec:
+  selector:
+    app: hello-k8s-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
+  type: NodePort
