@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: hello-k8s-app
-        image: harbor.your-domain.com/your-project/hello-k8s-app:latest
+        image: 192.168.10.67/jenkins/hello-k8s-app:latest
         ports:
         - containerPort: 5000
         imagePullPolicy: Always
@@ -33,4 +33,5 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 5000
+
   type: NodePort
