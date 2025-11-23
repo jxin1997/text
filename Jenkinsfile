@@ -9,7 +9,6 @@ pipeline {
     }
 
     stages {
-        // 无重复 Checkout 阶段，使用 Jenkins 自动拉取代码
         stage('Build & Push Docker Image') {
             steps {
                 script {
@@ -38,9 +37,11 @@ pipeline {
                         sh """
                         mkdir -p \${WORKSPACE}/tmp_kube
                         cp \${KUBECONFIG_FILE} \${WORKSPACE}/tmp_kube/config
-                        echo "KUBECONFIG=\${WORKSPACE}/tmp_kube/config" > \${WORKSPACE}/.env
+                        # 修正 .env 文件创建路径
+                        echo "KUBECONFIG=\${WORKSPACE}/tmp_kube/config" > \${WORKSPACE}/tmp_kube/.env
                         """
-                        load "\${WORKSPACE}/.env"
+                        # 修正 load 命令读取路径
+                        load "\${WORKSPACE}/tmp_kube/.env"
                         sh """
                         echo "Updating deployment.yaml..."
                         sed -i'' 's|image:.*|image: \${REGISTRY}/\${PROJECT}/\${APP_NAME}:BUILD-\${BUILD_NUMBER}|' hello-k8s-app/k8s/deployment.yaml
