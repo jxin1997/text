@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY = "192.168.10.67"       // Harbor 地址（无 https）
+        REGISTRY = "192.168.10.67"
         PROJECT = "jenkins"
         APP_NAME = "hello-k8s-app"
         KUBECONFIG_CREDENTIALS = credentials('kubeconfig-credentials')
@@ -16,10 +16,8 @@ pipeline {
                         sh """
                         echo "Logging into Harbor..."
                         docker login -u \${HARBOR_USER} -p \${HARBOR_PASS} \${REGISTRY}
-
                         echo "Building Docker image..."
                         docker build -t \${REGISTRY}/\${PROJECT}/\${APP_NAME}:BUILD-\${BUILD_NUMBER} ./hello-k8s-app
-
                         echo "Pushing Docker images..."
                         docker push \${REGISTRY}/\${PROJECT}/\${APP_NAME}:BUILD-\${BUILD_NUMBER}
                         docker tag \${REGISTRY}/\${PROJECT}/\${APP_NAME}:BUILD-\${BUILD_NUMBER} \${REGISTRY}/\${PROJECT}/\${APP_NAME}:latest
@@ -35,16 +33,14 @@ pipeline {
                 script {
                     withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG_FILE')]) {
                         sh """
-                        mkdir -p \${WORKSPACE}/tmp_kube
-                        cp \${KUBECONFIG_FILE} \${WORKSPACE}/tmp_kube/config
-                        # Shell 脚本内可用 # 注释
-                        echo "KUBECONFIG=\${WORKSPACE}/tmp_kube/config" > \${WORKSPACE}/tmp_kube/.env
+                        mkdir -p tmp_kube
+                        cp \${KUBECONFIG_FILE} tmp_kube/config
+                        echo "KUBECONFIG=\${PWD}/tmp_kube/config" > tmp_kube/.env
                         """
-                        // Groovy 代码用 // 注释
-                        load "\${WORKSPACE}/tmp_kube/.env"
+                        load "tmp_kube/.env"
                         sh """
                         echo "Updating deployment.yaml..."
-                        sed -i'' 's|image:.*|image: \${REGISTRY}/\${PROJECT}/\${APP_NAME}:BUILD-\${BUILD_NUMBER}|' hello-k8s-app/k8s/deployment.yaml
+                        sed -i '' 's|image:.*|image: \${REGISTRY}/\${PROJECT}/\${APP_NAME}:BUILD-\${BUILD_NUMBER}|' hello-k8s-app/k8s/deployment.yaml
                         kubectl apply -f hello-k8s-app/k8s/deployment.yaml
                         """
                     }
@@ -82,7 +78,7 @@ pipeline {
             else
                 echo "⚠️  环境变量未加载或无 Docker 权限，跳过镜像清理"
             fi
-            rm -rf \${WORKSPACE}/tmp_kube \${WORKSPACE}/.env || true
+            rm -rf tmp_kube .env || true
             """
         }
     }
