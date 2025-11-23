@@ -11,7 +11,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'master', url: 'http://github.com/jxin1997/text.git'
+                git branch: 'master', url: 'https://github.com/jxin1997/text.git'
             }
         }
 
