@@ -1,5 +1,5 @@
 # 使用官方Python轻量级基础镜像
-FROM python:3.9-slim
+FROM 192.168.10.67/public/python:3.9-slim
 # 设置工作目录
 WORKDIR /app
 # 复制依赖文件并安装
