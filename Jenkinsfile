@@ -8,6 +8,28 @@ pipeline {
         KUBECONFIG_CREDENTIALS = credentials('kubeconfig-credentials')
     }
 
+   stage('Build & Push Docker Image') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: '12345678', usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASS')]) {
+                        sh """
+                        echo "Logging into Harbor..."
+                        docker login -u $HARBOR_USER -p $HARBOR_PASS $REGISTRY
+
+                        echo "Building Docker image..."
+                        docker build -t $REGISTRY/$PROJECT/$APP_NAME:BUILD-$BUILD_NUMBER ./hello-k8s-app
+
+                        echo "Pushing Docker images..."
+                        docker push $REGISTRY/$PROJECT/$APP_NAME:BUILD-$BUILD_NUMBER
+                        docker tag $REGISTRY/$PROJECT/$APP_NAME:BUILD-$BUILD_NUMBER $REGISTRY/$PROJECT/$APP_NAME:latest
+                        docker push $REGISTRY/$PROJECT/$APP_NAME:latest
+                        """
+                    }
+                }
+            }
+        }
+
+    
     stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -29,26 +51,6 @@ pipeline {
         }
 
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                script {
-                    withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG_FILE')]) {
-                        // 1. 调试：打印根目录所有文件，确认 deployment.yaml 存在（关键）
-                        sh 'echo "=== 仓库根目录文件列表 ==="'
-                        sh 'ls -l'  // 会显示 deployment.yaml 和 service.yaml，确认存在
-                        
-                        // 2. 修正 sed 语法（Linux 兼容）和路径（根目录直接写文件名）
-                        sh 'echo "Updating deployment.yaml..."'
-                        sh 'sed -i "s|image:.*|image: ${REGISTRY}/${PROJECT}/${APP_NAME}:BUILD-${BUILD_NUMBER}|" deployment.yaml'
-                        
-                        // 3. 同时应用 deployment 和 service（根目录路径）
-                        sh 'echo "Applying deployment and service..."'
-                        sh 'kubectl --kubeconfig ${KUBECONFIG_FILE} apply -f deployment.yaml'
-                        sh 'kubectl --kubeconfig ${KUBECONFIG_FILE} apply -f service.yaml'
-                    }
-                }
-            }
-        }
 
         stage('Test Deployment') {
     steps {
