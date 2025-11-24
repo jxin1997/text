@@ -48,22 +48,54 @@ pipeline {
         }
 
         stage('Test Deployment') {
-            steps {
-                script {
-                    withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG_FILE')]) {
-                        sh 'kubectl --kubeconfig ${KUBECONFIG_FILE} wait --for=condition=ready pod -l app=hello-k8s-app --timeout=60s || { echo "❌ Pod 启动超时"; exit 1; }'
-                        sh 'NODE_IP=$(kubectl --kubeconfig ${KUBECONFIG_FILE} get node -o jsonpath="{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}")'
-                        sh 'NODE_PORT=$(kubectl --kubeconfig ${KUBECONFIG_FILE} get svc hello-k8s-app-service -o jsonpath="{.spec.ports[0].nodePort}" --ignore-not-found)'
-                        sh 'if [ -z "${NODE_IP}" ] || [ -z "${NODE_PORT}" ]; then echo "❌ 无法获取 NodeIP/NodePort"; exit 1; fi'
-                        sh 'curl --retry 10 --retry-delay 5 --retry-connrefused --fail http://${NODE_IP}:${NODE_PORT}'
-                        def nodeIp = sh(script: 'kubectl --kubeconfig ${KUBECONFIG_FILE} get node -o jsonpath="{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}"', returnStdout: true).trim()
-                        def nodePort = sh(script: 'kubectl --kubeconfig ${KUBECONFIG_FILE} get svc hello-k8s-app-service -o jsonpath="{.spec.ports[0].nodePort}"', returnStdout: true).trim()
-                        echo "✅ 部署成功！访问地址：http://${nodeIp}:${nodePort}"
+    steps {
+        script {
+            withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG_FILE')]) {
+                // 1. 等待 Pod 就绪（超时 60s，失败直接退出）
+                sh '''
+                    kubectl --kubeconfig ${KUBECONFIG_FILE} wait --for=condition=ready pod -l app=hello-k8s-app --timeout=60s || {
+                        echo "❌ Pod 启动超时或未就绪";
+                        exit 1;
                     }
+                '''
+
+                // 2. 获取 NodeIP 和 NodePort（用单引号包裹 JSONPath，避免双引号转义问题）
+                // 关键修正：JSONPath 用单引号，InternalIP 用双引号，且通过 returnStdout 直接获取变量（避免多 sh 步骤变量传递失败）
+                def nodeIp = sh(
+                    script: 'kubectl --kubeconfig ${KUBECONFIG_FILE} get node -o jsonpath=\'{.items[0].status.addresses[?(@.type=="InternalIP")].address}\'',
+                    returnStdout: true
+                ).trim()
+
+                def nodePort = sh(
+                    script: 'kubectl --kubeconfig ${KUBECONFIG_FILE} get svc hello-k8s-app-service -o jsonpath=\'{.spec.ports[0].nodePort}\' --ignore-not-found',
+                    returnStdout: true
+                ).trim()
+
+                // 3. 验证 NodeIP 和 NodePort 非空
+                if (nodeIp.empty || nodePort.empty) {
+                    echo "❌ 无法获取 NodeIP 或 NodePort（NodeIP: ${nodeIp}, NodePort: ${nodePort}）";
+                    exit 1;
                 }
+
+                // 4. 重试访问应用（兼容启动延迟，增强稳定性）
+                sh """
+                    echo "🔍 测试访问应用：http://${nodeIp}:${nodePort}";
+                    curl --retry 10 \
+                         --retry-delay 5 \
+                         --retry-connrefused \
+                         --fail \
+                         -v http://${nodeIp}:${nodePort} || {
+                        echo "❌ 应用访问失败";
+                        exit 1;
+                    }
+                """
+
+                // 5. 输出成功信息（带访问地址）
+                echo "✅ 部署成功！应用访问地址：http://${nodeIp}:${nodePort}";
             }
         }
     }
+}
 
     post {
         always {
