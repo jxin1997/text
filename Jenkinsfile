@@ -8,23 +8,26 @@ pipeline {
         KUBECONFIG_CREDENTIALS = credentials('kubeconfig-credentials')
     }
 
-    stages {
-        stage('Build & Push Docker Image') {
+    stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: '12345678', usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASS')]) {
-                        sh 'echo "Logging into Harbor..."'
-                        sh 'docker login -u ${HARBOR_USER} -p ${HARBOR_PASS} ${REGISTRY}'
-                        sh 'echo "Building Docker image..."'
-                        sh 'docker build -t ${REGISTRY}/${PROJECT}/${APP_NAME}:BUILD-${BUILD_NUMBER} ./hello-k8s-app'
-                        sh 'echo "Pushing Docker images..."'
-                        sh 'docker push ${REGISTRY}/${PROJECT}/${APP_NAME}:BUILD-${BUILD_NUMBER}'
-                        sh 'docker tag ${REGISTRY}/${PROJECT}/${APP_NAME}:BUILD-${BUILD_NUMBER} ${REGISTRY}/${PROJECT}/${APP_NAME}:latest'
-                        sh 'docker push ${REGISTRY}/${PROJECT}/${APP_NAME}:latest'
+                    withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG_FILE')]) {
+                        sh """
+                        mkdir -p $WORKSPACE/tmp_kube
+                        cp $KUBECONFIG_FILE $WORKSPACE/tmp_kube/config
+                        export KUBECONFIG=$WORKSPACE/tmp_kube/config
+
+                        echo "Updating deployment.yaml with new image..."
+                        sed -i 's|image:.*|image: $REGISTRY/$PROJECT/$APP_NAME:BUILD-$BUILD_NUMBER|' hello-k8s-app/k8s/deployment.yaml
+
+                        echo "Applying deployment..."
+                        kubectl apply -f hello-k8s-app/k8s/deployment.yaml
+                        """
                     }
                 }
             }
         }
+
 
         stage('Deploy to Kubernetes') {
             steps {
