@@ -5,11 +5,7 @@ pipeline {
         REGISTRY = "192.168.10.67"
         PROJECT = "jenkins"
         APP_NAME = "hello-k8s-app"
-        // 关键修正：根据仓库实际路径调整 deployment.yaml 路径（二选一，按你的仓库结构修改）
-        // 选项 A：若 deployment.yaml 在根目录 → K8S_DEPLOY_PATH = "deployment.yaml"
-        // 选项 B：若 deployment.yaml 在 k8s/ 目录 → K8S_DEPLOY_PATH = "k8s/deployment.yaml"
-        // 选项 C：若确实在 hello-k8s-app/k8s/ 目录 → 保持原路径（但需确认文件存在）
-        K8S_DEPLOY_PATH = "k8s/deployment.yaml"  // 优先推荐此路径（按之前仓库文件列表）
+        K8S_DEPLOY_PATH = "k8s/deployment.yaml"  // 按实际路径调整
         APP_CONTAINER_PORT = "5000"
     }
 
@@ -22,9 +18,7 @@ pipeline {
                         usernameVariable: 'HARBOR_USER', 
                         passwordVariable: 'HARBOR_PASS'
                     )]) {
-                        // 关键修正：用单引号字符串避免 Groovy 插值，通过环境变量传递密钥
                         sh '''
-                        # 确保 Docker 服务正常
                         systemctl is-active --quiet docker || systemctl start docker
 
                         echo "Logging into Harbor..."
@@ -52,29 +46,30 @@ pipeline {
                         credentialsId: 'kubeconfig-credentials', 
                         variable: 'KUBECONFIG_FILE'
                     )]) {
-                        // 关键修正：用单引号字符串 + 环境变量，避免密钥插值警告
                         sh '''
-                        # 配置 KUBECONFIG
-                        mkdir -p $WORKSPACE/.kube
-                        cp $KUBECONFIG_FILE $WORKSPACE/.kube/config
-                        export KUBECONFIG=$WORKSPACE/.kube/config
+                        # 关键修复：使用 jenkins 用户可写的临时目录（避免工作目录权限问题）
+                        export KUBE_TEMP_DIR="/tmp/jenkins-kubeconfig-$(date +%s)"
+                        mkdir -p $KUBE_TEMP_DIR
+                        cp $KUBECONFIG_FILE $KUBE_TEMP_DIR/config
+                        export KUBECONFIG=$KUBE_TEMP_DIR/config
 
                         # 验证 K8s 连接
                         kubectl cluster-info || {
                             echo "❌ 无法连接 Kubernetes 集群";
+                            rm -rf $KUBE_TEMP_DIR;  # 清理临时目录
                             exit 1;
                         }
 
-                        # 关键修正：先校验 deployment.yaml 文件是否存在
+                        # 校验 deployment.yaml 文件是否存在
                         if [ ! -f "$K8S_DEPLOY_PATH" ]; then
                             echo "❌ 找不到 deployment.yaml 文件，实际路径：$K8S_DEPLOY_PATH";
                             echo "当前目录文件列表：";
-                            ls -l $(dirname $K8S_DEPLOY_PATH);  # 输出上级目录文件，便于排查
+                            ls -l $(dirname $K8S_DEPLOY_PATH);
+                            rm -rf $KUBE_TEMP_DIR;  # 清理临时目录
                             exit 1;
                         fi
 
                         echo "Updating deployment.yaml with new image..."
-                        # 修正 sed 命令：兼容 image 行的任意格式（避免匹配失败）
                         sed -i "s|image:.*$APP_NAME[:@].*|image: $REGISTRY/$PROJECT/$APP_NAME:BUILD-$BUILD_NUMBER|" $K8S_DEPLOY_PATH
 
                         echo "Applying deployment..."
@@ -84,8 +79,12 @@ pipeline {
                         kubectl rollout status deployment/$APP_NAME --timeout=90s || {
                             echo "❌ Deployment 就绪超时";
                             kubectl describe deployment/$APP_NAME;
+                            rm -rf $KUBE_TEMP_DIR;  # 清理临时目录
                             exit 1;
                         }
+
+                        # 保留临时目录供测试阶段使用（通过环境变量传递）
+                        echo "KUBE_TEMP_DIR=$KUBE_TEMP_DIR" > $WORKSPACE/kube_temp_dir.env
                         '''
                     }
                 }
@@ -95,13 +94,19 @@ pipeline {
         stage('Test Deployment') {
             steps {
                 script {
+                    // 读取部署阶段的临时目录
+                    def kubeTempDir = sh(
+                        script: 'source $WORKSPACE/kube_temp_dir.env && echo $KUBE_TEMP_DIR',
+                        returnStdout: true
+                    ).trim()
+
                     withCredentials([file(
                         credentialsId: 'kubeconfig-credentials', 
                         variable: 'KUBECONFIG_FILE'
                     )]) {
-                        sh '''
-                        export KUBECONFIG=$WORKSPACE/.kube/config
-                        '''
+                        sh """
+                        export KUBECONFIG=$kubeTempDir/config
+                        """
 
                         sh '''
                         # 等待 Pod 就绪
@@ -180,11 +185,16 @@ pipeline {
 
     post {
         always {
-            // 关键修正：删除多余的中文括号 `）`，修复语法错误
+            // 关键修复：彻底删除中文括号 `）`，确保语法正确
             echo "📝 流水线执行完毕（构建号：$BUILD_NUMBER）"
             sh '''
-            # 清理临时文件
-            rm -rf $WORKSPACE/.kube || true
+            # 清理 KUBECONFIG 临时目录（无论成功失败都清理）
+            if [ -f "$WORKSPACE/kube_temp_dir.env" ]; then
+                source $WORKSPACE/kube_temp_dir.env && rm -rf $KUBE_TEMP_DIR
+                rm -f $WORKSPACE/kube_temp_dir.env
+            fi
+
+            # 清理其他临时文件
             rm -rf .env || true
 
             # 清理 Docker 镜像
